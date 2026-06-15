@@ -1,0 +1,9 @@
+target/
+*.db
+*.db-*
+uploads/*/
+!uploads/.gitkeep
+.env.bak
+*.swp
+*.swo
+*~

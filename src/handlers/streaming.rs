@@ -1,5 +1,4 @@
-use actix_files::NamedFile;
-use actix_web::{web, HttpRequest, HttpResponse};
+use actix_web::{web, HttpResponse};
 
 use crate::config::Config;
 use crate::errors::ApiError;
@@ -9,7 +8,6 @@ use crate::services::video;
 /// Sirve el playlist maestro HLS del video
 pub async fn stream_hls_master(
     config: web::Data<Config>,
-    req: HttpRequest,
     video_id: web::Path<String>,
 ) -> Result<HttpResponse, ApiError> {
     let video_id = video_id.into_inner();
@@ -78,7 +76,6 @@ pub async fn stream_hls_segment(
 /// GET /api/v1/stream/{video_id}/thumbnail.jpg
 pub async fn stream_thumbnail(
     config: web::Data<Config>,
-    req: HttpRequest,
     video_id: web::Path<String>,
 ) -> Result<HttpResponse, ApiError> {
     let video_id = video_id.into_inner();
@@ -88,9 +85,11 @@ pub async fn stream_thumbnail(
         return Err(ApiError::not_found("Thumbnail no disponible"));
     }
 
-    let file = NamedFile::open_async(&path)
+    let data = tokio::fs::read(&path)
         .await
-        .map_err(|e| ApiError::internal(format!("Error abriendo thumbnail: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Error leyendo thumbnail: {}", e)))?;
 
-    Ok(file.into_response(&req))
+    Ok(HttpResponse::Ok()
+        .content_type("image/jpeg")
+        .body(data))
 }

@@ -16,9 +16,19 @@ async fn main() -> std::io::Result<()> {
     let exe_dir = std::env::current_dir().unwrap_or_else(|_| ".".into());
     let env_path = exe_dir.join(".env");
     if env_path.exists() {
-        if let Ok(iter) = dotenv::from_path_iter(&env_path) {
-            for (key, val) in iter.flatten() {
-                std::env::set_var(key, val);
+        if let Ok(contents) = std::fs::read_to_string(&env_path) {
+            for line in contents.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                if let Some((key, val)) = line.split_once('=') {
+                    let key = key.trim();
+                    let val = val.trim();
+                    if !key.is_empty() {
+                        std::env::set_var(key, val);
+                    }
+                }
             }
         }
     }

@@ -96,4 +96,5 @@ impl From<jsonwebtoken::errors::Error> for ApiError {
     }
 }
 
+#[allow(dead_code)]
 pub type ApiResult<T> = Result<T, ApiError>;

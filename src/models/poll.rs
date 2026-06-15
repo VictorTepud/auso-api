@@ -23,6 +23,7 @@ pub struct PollOption {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[allow(dead_code)]
 pub struct PollVote {
     pub id: String,
     pub poll_option_id: String,

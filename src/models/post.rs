@@ -52,6 +52,7 @@ pub struct CreateTextPostRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct CreateImagePostRequest {
     pub content: Option<String>,
     pub community_id: Option<String>,
@@ -70,6 +71,7 @@ pub struct CreateImagePackPostRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct CreateVideoPostRequest {
     pub content: Option<String>,
     pub community_id: Option<String>,

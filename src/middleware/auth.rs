@@ -42,6 +42,7 @@ pub fn validate_token(token: &str, secret: &str) -> Result<Claims, jsonwebtoken:
     Ok(token_data.claims)
 }
 
+#[allow(dead_code)]
 pub fn extract_user_id_from_request(req: &ServiceRequest) -> Result<String, Error> {
     let config = req
         .app_data::<web::Data<Config>>()

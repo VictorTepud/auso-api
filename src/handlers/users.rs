@@ -25,7 +25,7 @@ pub async fn get_me(
     let stats = get_user_stats(pool.get_ref(), &user_id).await?;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
-        "user:": UserProfile::from(user),
+        "user": UserProfile::from(user),
         "stats": stats,
     })))
 }

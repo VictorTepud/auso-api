@@ -14,12 +14,15 @@ pub async fn serve_upload(
 ) -> Result<HttpResponse, ApiError> {
     let relative_path = path.into_inner();
 
+    // Normalizar dobles barras
+    let normalized = relative_path.replace("//", "/");
+
     // Prevenir path traversal
-    if relative_path.contains("..") {
+    if normalized.contains("..") {
         return Err(ApiError::bad_request("Ruta no válida"));
     }
 
-    let file_path = PathBuf::from(format!("{}/{}", config.upload_dir, relative_path));
+    let file_path = PathBuf::from(format!("{}/{}", config.upload_dir, normalized));
 
     if !file_path.exists() {
         return Err(ApiError::not_found("Archivo no encontrado"));

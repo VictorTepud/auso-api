@@ -160,7 +160,6 @@ fn transcode_to_hls(
             "-hls_time", &segment_duration.to_string(),
             "-hls_list_size", "0",
             "-hls_segment_filename", segment_pattern,
-            "-hls_master_playlist_name", "master.m3u8",
             "-hls_flags", "independent_segments",
             "-y",
             master_playlist,

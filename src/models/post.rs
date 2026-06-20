@@ -119,4 +119,5 @@ pub struct FeedQuery {
     pub community_id: Option<String>,
     pub group_id: Option<String>,
     pub user_id: Option<String>,
+    pub post_type: Option<String>,
 }

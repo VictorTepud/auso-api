@@ -397,34 +397,28 @@ pub async fn get_feed(
     let limit = query.limit.unwrap_or(20).min(50);
     let offset = (page - 1) * limit;
 
-    let posts = if let Some(ref community_id) = query.community_id {
-        sqlx::query_as::<_, PostWithAuthor>(
-            "SELECT p.*, u.username as author_username, u.display_name as author_display_name, u.profile_photo_url as author_profile_photo FROM posts p JOIN users u ON p.user_id = u.id WHERE p.community_id = ? ORDER BY p.created_at DESC LIMIT ? OFFSET ?"
-        )
-        .bind(community_id)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool.get_ref())
-        .await?
-    } else if let Some(ref group_id) = query.group_id {
-        sqlx::query_as::<_, PostWithAuthor>(
-            "SELECT p.*, u.username as author_username, u.display_name as author_display_name, u.profile_photo_url as author_profile_photo FROM posts p JOIN users u ON p.user_id = u.id WHERE p.group_id = ? ORDER BY p.created_at DESC LIMIT ? OFFSET ?"
-        )
-        .bind(group_id)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool.get_ref())
-        .await?
-    } else if let Some(ref target_user_id) = query.user_id {
-        sqlx::query_as::<_, PostWithAuthor>(
-            "SELECT p.*, u.username as author_username, u.display_name as author_display_name, u.profile_photo_url as author_profile_photo FROM posts p JOIN users u ON p.user_id = u.id WHERE p.user_id = ? ORDER BY p.created_at DESC LIMIT ? OFFSET ?"
-        )
-        .bind(target_user_id)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool.get_ref())
-        .await?
-    } else {
+    // Build WHERE clause dynamically based on filters
+    let mut where_clauses = Vec::new();
+    let mut bind_values: Vec<String> = Vec::new();
+
+    if let Some(ref community_id) = query.community_id {
+        where_clauses.push("p.community_id = ?".to_string());
+        bind_values.push(community_id.clone());
+    }
+    if let Some(ref group_id) = query.group_id {
+        where_clauses.push("p.group_id = ?".to_string());
+        bind_values.push(group_id.clone());
+    }
+    if let Some(ref target_user_id) = query.user_id {
+        where_clauses.push("p.user_id = ?".to_string());
+        bind_values.push(target_user_id.clone());
+    }
+    if let Some(ref post_type) = query.post_type {
+        where_clauses.push("p.post_type = ?".to_string());
+        bind_values.push(post_type.clone());
+    }
+
+    let posts = if where_clauses.is_empty() {
         // Feed principal: posts de usuarios seguidos + propios
         sqlx::query_as::<_, PostWithAuthor>(
             "SELECT p.*, u.username as author_username, u.display_name as author_display_name, u.profile_photo_url as author_profile_photo FROM posts p JOIN users u ON p.user_id = u.id WHERE p.user_id = ? OR p.user_id IN (SELECT following_id FROM follows WHERE follower_id = ?) ORDER BY p.created_at DESC LIMIT ? OFFSET ?"
@@ -435,6 +429,19 @@ pub async fn get_feed(
         .bind(offset)
         .fetch_all(pool.get_ref())
         .await?
+    } else {
+        // Filtered feed with dynamic WHERE
+        let where_sql = where_clauses.join(" AND ");
+        let sql = format!(
+            "SELECT p.*, u.username as author_username, u.display_name as author_display_name, u.profile_photo_url as author_profile_photo FROM posts p JOIN users u ON p.user_id = u.id WHERE {} ORDER BY p.created_at DESC LIMIT ? OFFSET ?",
+            where_sql
+        );
+        let mut query = sqlx::query_as::<_, PostWithAuthor>(&sql);
+        for val in &bind_values {
+            query = query.bind(val);
+        }
+        query = query.bind(limit).bind(offset);
+        query.fetch_all(pool.get_ref()).await?
     };
 
     // Enriquecer cada post con likes, comments, imágenes, etc.

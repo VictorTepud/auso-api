@@ -8,3 +8,4 @@ pub mod media;
 pub mod like;
 pub mod comment;
 pub mod follow;
+pub mod discovery;

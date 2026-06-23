@@ -29,10 +29,20 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             .route("/posts/video", web::post().to(posts::create_video_post))
             .route("/posts/poll", web::post().to(polls::create_poll_post))
             .route("/posts/feed", web::get().to(posts::get_feed))
+            .route("/posts/recommended", web::get().to(recommend::get_recommended_feed))
             .route("/posts/{id}", web::get().to(posts::get_post))
             .route("/posts/{id}", web::delete().to(posts::delete_post))
             .route("/posts/{id}/like", web::post().to(posts::toggle_like))
             .route("/posts/{id}/images", web::post().to(posts::add_images_to_post))
+            .route("/posts/{id}/impression", web::post().to(discovery::record_impression))
+
+            // ========== DISCOVERY (hashtags, categories, interests) ==========
+            .route("/categories", web::get().to(discovery::list_categories))
+            .route("/users/me/interests", web::post().to(discovery::set_user_interests))
+            .route("/users/me/interests", web::get().to(discovery::get_my_interests))
+            .route("/hashtags/search", web::get().to(discovery::search_hashtags))
+            .route("/hashtags/trending", web::get().to(discovery::trending_hashtags))
+            .route("/hashtags/{tag}/posts", web::get().to(discovery::get_posts_by_hashtag))
 
             // ========== COMMENTS ==========
             .route("/posts/{post_id}/comments", web::post().to(comments::create_comment))

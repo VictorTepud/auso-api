@@ -9,3 +9,5 @@ pub mod media;
 pub mod streaming;
 pub mod comments;
 pub mod follows;
+pub mod discovery;
+pub mod recommend;

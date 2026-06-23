@@ -43,6 +43,11 @@ pub async fn create_text_post(
         .fetch_one(pool.get_ref())
         .await?;
 
+    // Extract & persist hashtags from the post content
+    let _ = crate::handlers::discovery::persist_hashtags_for_post(
+        pool.get_ref(), &post_id, &body.content
+    ).await;
+
     Ok(HttpResponse::Created().json(post))
 }
 
@@ -139,6 +144,11 @@ pub async fn create_image_pack_post(
         .bind(&post_id)
         .fetch_one(pool.get_ref())
         .await?;
+
+    // Extract & persist hashtags from the post content (if any)
+    let _ = crate::handlers::discovery::persist_hashtags_for_post(
+        pool.get_ref(), &post_id, content
+    ).await;
 
     Ok(HttpResponse::Created().json(post))
 }
@@ -289,6 +299,11 @@ pub async fn create_video_post(
         .bind(&post_id)
         .fetch_one(pool.get_ref())
         .await?;
+
+    // Extract & persist hashtags from the post content (saved.content)
+    let _ = crate::handlers::discovery::persist_hashtags_for_post(
+        pool.get_ref(), &post_id, &saved.content
+    ).await;
 
     Ok(HttpResponse::Created().json(serde_json::json!({
         "post": post,
@@ -622,7 +637,7 @@ pub async fn toggle_like(
 }
 
 /// Helper: obtener poll de un post
-async fn get_poll_for_post(
+pub async fn get_poll_for_post(
     pool: &SqlitePool,
     post_id: &str,
     user_id: Option<&str>,

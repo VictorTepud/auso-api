@@ -56,10 +56,10 @@ async fn main() -> std::io::Result<()> {
         .await
         .expect("Error inicializando base de datos");
 
-    // Ejecutar migraciones
+    // Ejecutar migraciones (todos los archivos .sql de la carpeta migrations/, en orden)
     let migrations_path = std::env::current_dir()
-        .map(|p| p.join("migrations/001_init.sql").to_string_lossy().to_string())
-        .unwrap_or_else(|_| "./migrations/001_init.sql".to_string());
+        .map(|p| p.join("migrations").to_string_lossy().to_string())
+        .unwrap_or_else(|_| "./migrations".to_string());
 
     db::run_migrations(&pool, &migrations_path)
         .await

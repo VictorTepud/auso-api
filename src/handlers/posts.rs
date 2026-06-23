@@ -224,15 +224,17 @@ pub async fn create_video_post(
     let post_id = Uuid::new_v4().to_string();
     let video_id = Uuid::new_v4().to_string();
 
-    // Guardar video temporalmente
-    let (temp_path, original_filename) = media::save_video_temp(payload, config.get_ref()).await?;
+    // Guardar video temporalmente + leer campos de texto opcionales (title/description/content)
+    let saved = media::save_video_temp(payload, config.get_ref()).await?;
 
-    // Crear el post primero
+    // Crear el post primero — el contenido del post ahora es el `content` enviado por el cliente
+    // (si no se envió, queda vacío para preservar comportamiento anterior)
     sqlx::query(
-        "INSERT INTO posts (id, user_id, post_type, content) VALUES (?, ?, 'video', '')"
+        "INSERT INTO posts (id, user_id, post_type, content) VALUES (?, ?, 'video', ?)"
     )
     .bind(&post_id)
     .bind(&user_id)
+    .bind(&saved.content)
     .execute(pool.get_ref())
     .await?;
 
@@ -241,7 +243,10 @@ pub async fn create_video_post(
     let pool_clone = pool.clone();
     let post_id_clone = post_id.clone();
     let video_id_clone = video_id.clone();
-    let original_filename_clone = original_filename.clone();
+    let original_filename_clone = saved.original_filename.clone();
+    let title_clone = saved.title.clone();
+    let description_clone = saved.description.clone();
+    let temp_path = saved.temp_path.clone();
 
     // Procesamiento asíncrono del video
     tokio::spawn(async move {
@@ -249,7 +254,7 @@ pub async fn create_video_post(
             Ok(result) => {
                 let video_record_id = Uuid::new_v4().to_string();
                 let query_result = sqlx::query(
-                    "INSERT INTO post_videos (id, post_id, original_filename, hls_master_playlist_url, duration, width, height, thumbnail_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                    "INSERT INTO post_videos (id, post_id, original_filename, hls_master_playlist_url, duration, width, height, thumbnail_url, title, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 )
                 .bind(&video_record_id)
                 .bind(&post_id_clone)
@@ -259,6 +264,8 @@ pub async fn create_video_post(
                 .bind(result.width)
                 .bind(result.height)
                 .bind(&result.thumbnail_url)
+                .bind(&title_clone)
+                .bind(&description_clone)
                 .execute(pool_clone.get_ref())
                 .await;
 

@@ -73,11 +73,23 @@ pub async fn save_image(
     Ok(uploaded)
 }
 
-/// Guarda un video subido temporalmente para procesamiento
+/// Resultado de guardar un video temporalmente: ruta del archivo, nombre original,
+/// y campos de texto opcionales leídos del multipart (title, description, content).
+pub struct SavedVideoTemp {
+    pub temp_path: PathBuf,
+    pub original_filename: String,
+    pub title: String,
+    pub description: String,
+    pub content: String,
+}
+
+/// Guarda un video subido temporalmente para procesamiento.
+/// Además del archivo, lee opcionalmente los campos de texto `title`, `description`
+/// y `content` enviados en el mismo multipart.
 pub async fn save_video_temp(
     mut payload: Multipart,
     config: &Config,
-) -> Result<(PathBuf, String), ApiError> {
+) -> Result<SavedVideoTemp, ApiError> {
     let temp_dir = format!("{}/videos/temp", config.upload_dir);
 
     fs::create_dir_all(&temp_dir)
@@ -86,51 +98,88 @@ pub async fn save_video_temp(
 
     let video_id = Uuid::new_v4().to_string();
     let mut original_filename = String::from("video.mp4");
+    let mut title = String::new();
+    let mut description = String::new();
+    let mut content = String::new();
+    let mut temp_path: Option<PathBuf> = None;
 
-    if let Some(field) = payload.next().await {
-        let field = field.map_err(|e| ApiError::bad_request(format!("Error leyendo multipart: {}", e)))?;
-        let content_disposition = field.content_disposition();
+    // Iterate all multipart fields — file part is saved to disk,
+    // text fields (title/description/content) are captured as strings.
+    while let Some(field) = payload.next().await {
+        let mut field = field.map_err(|e| ApiError::bad_request(format!("Error leyendo multipart: {}", e)))?;
+        let content_disposition = field.content_disposition().cloned();
+        let field_name = content_disposition
+            .as_ref()
+            .and_then(|cd| cd.get_name())
+            .unwrap_or("")
+            .to_string();
 
-        if let Some(cd) = content_disposition {
-            if let Some(fname) = cd.get_filename() {
-                original_filename = fname.to_string();
+        // Text fields
+        if field_name == "title" || field_name == "description" || field_name == "content" {
+            let mut text = String::new();
+            while let Some(chunk) = field.next().await {
+                let data = chunk.map_err(|e| ApiError::bad_request(format!("Error leyendo datos: {}", e)))?;
+                text.push_str(&String::from_utf8_lossy(&data));
             }
+            match field_name.as_str() {
+                "title" => title = text,
+                "description" => description = text,
+                "content" => content = text,
+                _ => {}
+            }
+            continue;
         }
 
-        let ext = Path::new(&original_filename)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("mp4");
-
-        let temp_path = PathBuf::from(format!("{}/{}.{}", temp_dir, video_id, ext));
-
-        let mut total_size: u64 = 0;
-        let mut file = fs::File::create(&temp_path)
-            .await
-            .map_err(|e| ApiError::internal(format!("Error creando archivo temporal: {}", e)))?;
-
-        let mut field_stream = field;
-        while let Some(chunk) = field_stream.next().await {
-            let data = chunk.map_err(|e| ApiError::bad_request(format!("Error leyendo datos: {}", e)))?;
-            total_size += data.len() as u64;
-
-            if total_size > config.max_video_size_bytes() {
-                let _ = fs::remove_file(&temp_path).await;
-                return Err(ApiError::bad_request(format!(
-                    "Video excede el tamaño máximo de {}MB",
-                    config.max_video_size_mb
-                )));
+        // File field (the video itself)
+        if temp_path.is_none() {
+            if let Some(cd) = content_disposition {
+                if let Some(fname) = cd.get_filename() {
+                    original_filename = fname.to_string();
+                }
             }
 
-            use tokio::io::AsyncWriteExt;
-            file.write_all(&data)
+            let ext = Path::new(&original_filename)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("mp4");
+
+            let path = PathBuf::from(format!("{}/{}.{}", temp_dir, video_id, ext));
+            let mut total_size: u64 = 0;
+            let mut file = fs::File::create(&path)
                 .await
-                .map_err(|e| ApiError::internal(format!("Error escribiendo archivo: {}", e)))?;
-        }
+                .map_err(|e| ApiError::internal(format!("Error creando archivo temporal: {}", e)))?;
 
-        Ok((temp_path, original_filename))
-    } else {
-        Err(ApiError::bad_request("No se encontró archivo de video"))
+            while let Some(chunk) = field.next().await {
+                let data = chunk.map_err(|e| ApiError::bad_request(format!("Error leyendo datos: {}", e)))?;
+                total_size += data.len() as u64;
+
+                if total_size > config.max_video_size_bytes() {
+                    let _ = fs::remove_file(&path).await;
+                    return Err(ApiError::bad_request(format!(
+                        "Video excede el tamaño máximo de {}MB",
+                        config.max_video_size_mb
+                    )));
+                }
+
+                use tokio::io::AsyncWriteExt;
+                file.write_all(&data)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("Error escribiendo archivo: {}", e)))?;
+            }
+
+            temp_path = Some(path);
+        }
+    }
+
+    match temp_path {
+        Some(path) => Ok(SavedVideoTemp {
+            temp_path: path,
+            original_filename,
+            title,
+            description,
+            content,
+        }),
+        None => Err(ApiError::bad_request("No se encontró archivo de video")),
     }
 }
 

@@ -37,6 +37,8 @@ pub struct PostVideo {
     pub width: i32,
     pub height: i32,
     pub thumbnail_url: Option<String>,
+    pub title: String,
+    pub description: String,
     pub created_at: String,
 }
 

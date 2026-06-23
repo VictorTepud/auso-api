@@ -93,6 +93,9 @@ pub struct PostResponse {
     pub author_username: String,
     pub author_display_name: String,
     pub author_profile_photo: Option<String>,
+    /// Hashtags linked to this post (without the # prefix). Empty if none.
+    #[serde(default)]
+    pub hashtags: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]

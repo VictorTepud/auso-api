@@ -402,6 +402,15 @@ pub async fn get_post(
         author_username: post.author_username,
         author_display_name: post.author_display_name,
         author_profile_photo: post.author_profile_photo,
+        hashtags: {
+            sqlx::query_scalar::<_, String>(
+                "SELECT h.tag FROM post_hashtags ph JOIN hashtags h ON h.id = ph.hashtag_id
+                 WHERE ph.post_id = ? ORDER BY h.tag"
+            )
+            .bind(&post.id)
+            .fetch_all(pool.get_ref())
+            .await.unwrap_or_default()
+        },
     };
 
     Ok(HttpResponse::Ok().json(response))
@@ -536,6 +545,15 @@ pub async fn get_feed(
             author_username: p.author_username,
             author_display_name: p.author_display_name,
             author_profile_photo: p.author_profile_photo,
+            hashtags: {
+                sqlx::query_scalar::<_, String>(
+                    "SELECT h.tag FROM post_hashtags ph JOIN hashtags h ON h.id = ph.hashtag_id
+                     WHERE ph.post_id = ? ORDER BY h.tag"
+                )
+                .bind(&p.id)
+                .fetch_all(pool.get_ref())
+                .await.unwrap_or_default()
+            },
         });
     }
 

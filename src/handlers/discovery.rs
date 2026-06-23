@@ -364,6 +364,15 @@ pub async fn enrich_post(
         None
     };
 
+    // Load hashtags linked to this post (tag text without the # prefix)
+    let hashtags: Vec<String> = sqlx::query_scalar::<_, String>(
+        "SELECT h.tag FROM post_hashtags ph JOIN hashtags h ON h.id = ph.hashtag_id
+         WHERE ph.post_id = ? ORDER BY h.tag"
+    )
+    .bind(&p.id)
+    .fetch_all(pool)
+    .await?;
+
     Ok(PostResponse {
         post: Post {
             id: p.id.clone(),
@@ -388,5 +397,6 @@ pub async fn enrich_post(
         author_username: p.author_username.clone(),
         author_display_name: p.author_display_name.clone(),
         author_profile_photo: p.author_profile_photo.clone(),
+        hashtags,
     })
 }

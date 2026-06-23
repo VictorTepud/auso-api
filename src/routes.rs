@@ -40,8 +40,10 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             .route("/categories", web::get().to(discovery::list_categories))
             .route("/users/me/interests", web::post().to(discovery::set_user_interests))
             .route("/users/me/interests", web::get().to(discovery::get_my_interests))
+            .route("/users/me/suggested", web::get().to(discovery::get_suggested_users))
             .route("/hashtags/search", web::get().to(discovery::search_hashtags))
             .route("/hashtags/trending", web::get().to(discovery::trending_hashtags))
+            .route("/hashtags/suggested", web::get().to(discovery::get_suggested_hashtags))
             .route("/hashtags/{tag}/posts", web::get().to(discovery::get_posts_by_hashtag))
 
             // ========== COMMENTS ==========

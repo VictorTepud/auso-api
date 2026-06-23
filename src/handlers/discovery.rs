@@ -187,9 +187,10 @@ pub async fn record_impression(
     .execute(pool.get_ref())
     .await?;
 
-    // If the impression is positive (like/comment/share), boost the user's
-    // affinity for the categories associated with the post's hashtags.
-    if weight > 0.0 {
+    // If the impression is non-zero, adjust the user's affinity for the categories
+    // associated with the post's hashtags. Positive impressions boost the weight;
+    // negative impressions (skip / not_interested) decrease it — but never below 0.
+    if weight != 0.0 {
         let category_ids: Vec<String> = sqlx::query_scalar::<_, String>(
             "SELECT DISTINCT hc.category_id
              FROM post_hashtags ph
@@ -200,21 +201,53 @@ pub async fn record_impression(
         .fetch_all(pool.get_ref())
         .await?;
 
-        for cat_id in category_ids {
-            // Upsert: bump the weight of this user's interest in this category
+        // For 'not_interested' we also explicitly block this post's hashtags so the
+        // recommender won't suggest posts with those tags again.
+        if impression_type == "not_interested" {
             sqlx::query(
-                "INSERT INTO user_interests (id, user_id, category_id, weight)
-                 VALUES (?, ?, ?, ?)
-                 ON CONFLICT(user_id, category_id)
-                 DO UPDATE SET weight = user_interests.weight + ?"
+                "INSERT OR IGNORE INTO blocked_hashtags (user_id, hashtag_id)
+                 SELECT ?, ph.hashtag_id FROM post_hashtags ph WHERE ph.post_id = ?"
             )
-            .bind(Uuid::new_v4().to_string())
             .bind(&user_id)
-            .bind(&cat_id)
-            .bind(weight * 0.1) // small boost per positive impression
-            .bind(weight * 0.1)
+            .bind(&post_id)
             .execute(pool.get_ref())
             .await?;
+        }
+
+        for cat_id in category_ids {
+            // Upsert: bump (or reduce) the weight of this user's interest in this category.
+            // For negative signals we use MAX(0, ...) so the weight never goes below 0.
+            if weight > 0.0 {
+                sqlx::query(
+                    "INSERT INTO user_interests (id, user_id, category_id, weight)
+                     VALUES (?, ?, ?, ?)
+                     ON CONFLICT(user_id, category_id)
+                     DO UPDATE SET weight = user_interests.weight + ?"
+                )
+                .bind(Uuid::new_v4().to_string())
+                .bind(&user_id)
+                .bind(&cat_id)
+                .bind(weight * 0.1)
+                .bind(weight * 0.1)
+                .execute(pool.get_ref())
+                .await?;
+            } else {
+                // Negative signal — decay the interest weight (clamped to >= 0)
+                let decay = weight * 0.2; // e.g. skip: -0.4, not_interested: -1.6
+                sqlx::query(
+                    "INSERT INTO user_interests (id, user_id, category_id, weight)
+                     VALUES (?, ?, ?, ?)
+                     ON CONFLICT(user_id, category_id)
+                     DO UPDATE SET weight = MAX(0.0, user_interests.weight + ?)"
+                )
+                .bind(Uuid::new_v4().to_string())
+                .bind(&user_id)
+                .bind(&cat_id)
+                .bind(decay)
+                .bind(decay)
+                .execute(pool.get_ref())
+                .await?;
+            }
         }
     }
 
@@ -399,4 +432,83 @@ pub async fn enrich_post(
         author_profile_photo: p.author_profile_photo.clone(),
         hashtags,
     })
+}
+
+/// GET /api/v1/users/me/suggested
+/// Returns up to 10 users the current user doesn't follow yet, ranked by how much
+/// their posts overlap with the current user's interest categories. Used by the
+/// Search screen's "Sugerido para ti" section.
+pub async fn get_suggested_users(
+    pool: web::Data<SqlitePool>,
+    req: actix_web::HttpRequest,
+    config: web::Data<Config>,
+) -> Result<HttpResponse, ApiError> {
+    let user_id = get_user_id_from_request(&req, config.get_ref())?;
+
+    // Users not followed by the current user, ranked by the number of their posts
+    // that carry hashtags linked to the current user's interest categories.
+    let suggested = sqlx::query_as::<_, crate::models::user::UserProfile>(
+        "SELECT u.id, u.username, u.display_name, u.bio, u.profile_photo_url,
+                u.cover_photo_url, u.phone, u.location, u.website, u.birth_date,
+                u.gender, u.created_at
+         FROM users u
+         WHERE u.id != ?
+           AND u.id NOT IN (SELECT following_id FROM follows WHERE follower_id = ?)
+           AND u.id IN (
+               SELECT DISTINCT p.user_id FROM posts p
+               JOIN post_hashtags ph ON ph.post_id = p.id
+               JOIN hashtag_categories hc ON hc.hashtag_id = ph.hashtag_id
+               JOIN user_interests ui ON ui.category_id = hc.category_id
+               WHERE ui.user_id = ?
+           )
+         GROUP BY u.id
+         ORDER BY COUNT(p.id) DESC
+         LIMIT 10"
+    )
+    .bind(&user_id)
+    .bind(&user_id)
+    .bind(&user_id)
+    .fetch_all(pool.get_ref())
+    .await?;
+
+    Ok(HttpResponse::Ok().json(suggested))
+}
+
+/// GET /api/v1/hashtags/suggested
+/// Returns up to 15 hashtags the user hasn't engaged with yet, ranked by how well
+/// they match the user's interest categories (via hashtag_categories mapping) and
+/// by global usage_count. Used by the Search screen and Interests screen.
+pub async fn get_suggested_hashtags(
+    pool: web::Data<SqlitePool>,
+    req: actix_web::HttpRequest,
+    config: web::Data<Config>,
+) -> Result<HttpResponse, ApiError> {
+    let user_id = get_user_id_from_request(&req, config.get_ref())?;
+
+    // Hashtags whose category is in the user's interests, excluding ones the user
+    // already engaged with or blocked.
+    let suggested = sqlx::query_as::<_, crate::models::discovery::Hashtag>(
+        "SELECT h.* FROM hashtags h
+         JOIN hashtag_categories hc ON hc.hashtag_id = h.id
+         JOIN user_interests ui ON ui.category_id = hc.category_id
+         WHERE ui.user_id = ?
+           AND h.id NOT IN (
+               SELECT ph.hashtag_id FROM post_impressions pi
+               JOIN post_hashtags ph ON ph.post_id = pi.post_id
+               WHERE pi.user_id = ? AND pi.weight > 0
+           )
+           AND h.id NOT IN (
+               SELECT hashtag_id FROM blocked_hashtags WHERE user_id = ?
+           )
+         GROUP BY h.id
+         ORDER BY h.usage_count DESC
+         LIMIT 15"
+    )
+    .bind(&user_id)
+    .bind(&user_id)
+    .bind(&user_id)
+    .fetch_all(pool.get_ref())
+    .await?;
+
+    Ok(HttpResponse::Ok().json(suggested))
 }

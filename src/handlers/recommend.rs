@@ -71,7 +71,8 @@ pub async fn get_recommended_feed(
     .await?;
     let followee_set: std::collections::HashSet<String> = followees.into_iter().collect();
 
-    // ── 4. Fetch candidate posts (last 14 days, excluding own posts) ──
+    // ── 4. Fetch candidate posts (last 14 days, excluding own posts and posts with
+    //       blocked hashtags — i.e. hashtags the user marked as "No me interesa"). ──
     // We fetch a larger pool (200) and rank, then paginate the result.
     let candidates = sqlx::query_as::<_, PostWithAuthor>(
         "SELECT p.*, u.username as author_username, u.display_name as author_display_name, u.profile_photo_url as author_profile_photo
@@ -79,9 +80,15 @@ pub async fn get_recommended_feed(
          JOIN users u ON p.user_id = u.id
          WHERE p.user_id != ?
            AND p.created_at >= datetime('now', '-14 days')
+           AND p.id NOT IN (
+               SELECT ph.post_id FROM post_hashtags ph
+               JOIN blocked_hashtags bh ON bh.hashtag_id = ph.hashtag_id
+               WHERE bh.user_id = ?
+           )
          ORDER BY p.created_at DESC
          LIMIT 200"
     )
+    .bind(&user_id)
     .bind(&user_id)
     .fetch_all(pool.get_ref())
     .await?;

@@ -62,20 +62,23 @@ pub struct PostImpression {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateImpressionRequest {
-    pub impression_type: String, // 'view' | 'like' | 'comment' | 'share' | 'skip'
+    pub impression_type: String, // 'view' | 'like' | 'comment' | 'share' | 'skip' | 'not_interested'
 }
 
 impl PostImpression {
     /// Weight lookup table — drives the recommender's affinity score.
-    /// Likes and shares are the strongest positive signals; a skip is a
-    /// mild negative signal. Views are the weakest positive signal.
+    /// - Likes and shares are the strongest positive signals.
+    /// - 'skip' is a mild negative signal (passive: user scrolled past without interacting).
+    /// - 'not_interested' is a STRONG negative signal (active: user tapped "No me interesa").
+    /// - Views are the weakest positive signal.
     pub fn weight_for(impression_type: &str) -> f64 {
         match impression_type {
             "view" => 1.0,
             "like" => 5.0,
             "comment" => 4.0,
             "share" => 6.0,
-            "skip" => -1.0,
+            "skip" => -2.0,
+            "not_interested" => -8.0,
             _ => 0.0,
         }
     }
